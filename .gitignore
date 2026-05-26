@@ -1,0 +1,18 @@
+# 用户数据（隐私）
+backend/data/douarchive.db
+backend/data/reports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller 构建产物
+backend/dist/
+backend/build/
+*.spec
+
+
+# Claude Code 开发文件
+.claude/
+CLAUDE.md

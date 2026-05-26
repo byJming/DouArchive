@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>豆藏 DouArchive</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- 全局 Loading -->
+        <div v-show="globalLoading" class="global-loading">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">豆藏</h1>
+                <span class="logo-sub">DouArchive</span>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#/" :class="{active: route === '/'}">
+                    <span class="nav-icon">📊</span> 数据总览
+                </a>
+                <a href="#/movies" :class="{active: route === '/movies'}">
+                    <span class="nav-icon">🎬</span> 电影
+                </a>
+                <a href="#/books" :class="{active: route === '/books'}">
+                    <span class="nav-icon">📚</span> 读书
+                </a>
+                <a href="#/music" :class="{active: route === '/music'}">
+                    <span class="nav-icon">🎵</span> 音乐
+                </a>
+                <a href="#/stats" :class="{active: route === '/stats'}">
+                    <span class="nav-icon">📈</span> 统计分析
+                </a>
+                <a href="#/ai" :class="{active: route === '/ai'}">
+                    <span class="nav-icon">🤖</span> AI 分析
+                </a>
+                <a href="#/settings" :class="{active: route === '/settings'}">
+                    <span class="nav-icon">⚙️</span> 设置
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <span class="version">v1.0.1</span>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h2 class="page-title">{{ pageTitle }}</h2>
+                <div class="top-actions">
+                    <span class="health-dot" :class="{ok: healthOk}" :title="healthOk ? '后端在线' : '后端离线'"></span>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <!-- Dashboard -->
+                <div v-show="route === '/'" class="dashboard">
+                    <div class="stat-cards">
+                        <div class="stat-card movie" @click="goTo('/movies')">
+                            <div class="stat-icon">🎬</div>
+                            <div class="stat-info">
+                                <div class="stat-number">{{ overview.movie?.total || 0 }}</div>
+                                <div class="stat-label">电影</div>
+                            </div>
+                            <div class="stat-detail">
+                                <span>想看 {{ overview.movie?.wish || 0 }}</span>
+                                <span>在看 {{ overview.movie?.do || 0 }}</span>
+                                <span>看过 {{ overview.movie?.collect || 0 }}</span>
+                            </div>
+                        </div>
+                        <div class="stat-card book" @click="goTo('/books')">
+                            <div class="stat-icon">📚</div>
+                            <div class="stat-info">
+                                <div class="stat-number">{{ overview.book?.total || 0 }}</div>
+                                <div class="stat-label">读书</div>
+                            </div>
+                            <div class="stat-detail">
+                                <span>想读 {{ overview.book?.wish || 0 }}</span>
+                                <span>在读 {{ overview.book?.do || 0 }}</span>
+                                <span>读过 {{ overview.book?.collect || 0 }}</span>
+                            </div>
+                        </div>
+                        <div class="stat-card music" @click="goTo('/music')">
+                            <div class="stat-icon">🎵</div>
+                            <div class="stat-info">
+                                <div class="stat-number">{{ overview.music?.total || 0 }}</div>
+                                <div class="stat-label">音乐</div>
+                            </div>
+                            <div class="stat-detail">
+                                <span>想听 {{ overview.music?.wish || 0 }}</span>
+                                <span>在听 {{ overview.music?.do || 0 }}</span>
+                                <span>听过 {{ overview.music?.collect || 0 }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dashboard-charts">
+                        <div class="chart-card full-width">
+                            <h3>活跃度热力图</h3>
+                            <div id="dashHeatmapChart" class="chart-container" style="height: 220px;"></div>
+                        </div>
+                        <div class="chart-card">
+                            <h3>年份分布</h3>
+                            <div id="dashYearChart" class="chart-container"></div>
+                        </div>
+                        <div class="chart-card">
+                            <h3>评分分布</h3>
+                            <div id="dashScoreChart" class="chart-container"></div>
+                        </div>
+                    </div>
+                    <div class="recent-section">
+                        <h3>最近标记</h3>
+                        <div class="recent-list">
+                            <div v-for="item in recentItems" :key="item.id" class="recent-item">
+                                <span class="recent-type" :class="item.media_type">{{ typeLabel(item.media_type) }}</span>
+                                <span class="recent-title">{{ item.title }}</span>
+                                <span class="recent-score" v-if="item.score">{{ '★'.repeat(Math.round(item.score)) }}</span>
+                                <span class="recent-date">{{ item.mark_time }}</span>
+                            </div>
+                            <div v-if="recentItems.length === 0" class="empty-hint">暂无数据，请先使用油猴脚本采集</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Media List (Movies / Books / Music) -->
+                <div v-show="route === '/movies' || route === '/books' || route === '/music'" class="media-list-view">
+                    <div class="filter-bar">
+                        <div class="filter-group">
+                            <select v-model="filters.mark_status" @change="loadMedia" class="filter-select">
+                                <option value="">全部状态</option>
+                                <option value="wish">{{ mediaType === 'music' ? '想听' : mediaType === 'book' ? '想读' : '想看' }}</option>
+                                <option value="do">{{ mediaType === 'music' ? '在听' : mediaType === 'book' ? '在读' : '在看' }}</option>
+                                <option value="collect">{{ mediaType === 'music' ? '听过' : mediaType === 'book' ? '读过' : '看过' }}</option>
+                            </select>
+                            <select v-model="filters.sort" @change="loadMedia" class="filter-select">
+                                <option value="mark_time">按时间</option>
+                                <option value="score">按评分</option>
+                                <option value="title">按标题</option>
+                            </select>
+                            <select v-model="filters.order" @change="loadMedia" class="filter-select">
+                                <option value="desc">降序</option>
+                                <option value="asc">升序</option>
+                            </select>
+                        </div>
+                        <div class="search-box">
+                            <input v-model="filters.keyword" @keyup.enter="loadMedia" placeholder="搜索标题/创作者..." class="search-input">
+                            <button @click="loadMedia" class="btn btn-sm">搜索</button>
+                            <button v-if="selectedIds.size > 0" @click="batchDeleteMedia" class="btn btn-sm btn-danger">批量删除 ({{ selectedIds.size }})</button>
+                        </div>
+                    </div>
+
+                    <div class="media-table-wrap">
+                        <table class="media-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-check"><input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll"></th>
+                                    <th class="col-title">标题</th>
+                                    <th class="col-creator">创作者</th>
+                                    <th class="col-score">评分</th>
+                                    <th class="col-comment">短评</th>
+                                    <th class="col-status">状态</th>
+                                    <th class="col-date">日期</th>
+                                    <th class="col-tags">标签</th>
+                                    <th class="col-action">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="item in mediaItems" :key="item.id" :class="{ 'row-selected': selectedIds.has(item.id) }">
+                                    <td class="col-check"><input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item.id)"></td>
+                                    <td class="col-title">
+                                        <a :href="item.douban_url" target="_blank" class="media-link">{{ item.title }}</a>
+                                        <span v-if="item.alt_title" class="alt-title">{{ item.alt_title }}</span>
+                                    </td>
+                                    <td class="col-creator">
+                                        <span v-for="(c, idx) in (item.creator || '').split(' / ').filter(s => s)" :key="idx" class="creator-chip">{{ c }}</span>
+                                        <span v-if="!item.creator">-</span>
+                                    </td>
+                                    <td class="col-score">
+                                        <span v-if="item.score" class="score-stars">{{ '★'.repeat(Math.round(item.score)) }}{{ '☆'.repeat(5 - Math.round(item.score)) }}</span>
+                                        <span v-else class="no-score">-</span>
+                                    </td>
+                                    <td class="col-comment" :title="item.comment || ''">
+                                        <span v-if="item.comment" class="comment-text">{{ item.comment }}</span>
+                                        <span v-else class="no-score">-</span>
+                                    </td>
+                                    <td class="col-status">
+                                        <span class="status-badge" :class="item.mark_status">{{ statusLabel(item.mark_status) }}</span>
+                                    </td>
+                                    <td class="col-date">{{ item.mark_time || '-' }}</td>
+                                    <td class="col-tags">
+                                        <span v-for="tag in parseTags(item.tags).slice(0, 3)" :key="tag" class="tag-chip" @click="filterByTag(tag)">{{ tag }}</span>
+                                    </td>
+                                    <td class="col-action">
+                                        <button @click="deleteMedia(item)" class="btn btn-sm btn-danger">删除</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div v-if="mediaItems.length === 0" class="empty-table">暂无数据</div>
+                    </div>
+
+                    <div class="pagination" v-if="mediaTotal > pageSize">
+                        <button @click="changePage(page - 1)" :disabled="page <= 1" class="btn btn-sm">上一页</button>
+                        <span class="page-info">{{ page }} / {{ Math.ceil(mediaTotal / pageSize) }}</span>
+                        <button @click="changePage(page + 1)" :disabled="page >= Math.ceil(mediaTotal / pageSize)" class="btn btn-sm">下一页</button>
+                    </div>
+                </div>
+
+                <!-- Stats -->
+                <div v-show="route === '/stats'" class="stats-view">
+                    <div class="stats-type-bar">
+                        <button v-for="t in [{v:'',l:'全部'},{v:'movie',l:'电影'},{v:'book',l:'读书'},{v:'music',l:'音乐'}]"
+                            :key="t.v" @click="statsType = t.v; loadStats()" class="btn" :class="{active: statsType === t.v}">{{ t.l }}</button>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="chart-card"><h3>年份分布</h3><div id="yearChart" class="chart-container"></div></div>
+                        <div class="chart-card"><h3>评分分布</h3><div id="scoreChart" class="chart-container"></div></div>
+                        <div class="chart-card"><h3>月度趋势</h3><div id="monthChart" class="chart-container"></div></div>
+                        <div class="chart-card"><h3>标签 TOP20</h3><div id="tagChart" class="chart-container"></div></div>
+                        <div class="chart-card full-width"><h3>创作者排行</h3><div id="creatorChart" class="chart-container"></div></div>
+                    </div>
+                </div>
+
+                <!-- AI -->
+                <div v-show="route === '/ai'" class="ai-view">
+                    <div class="ai-config-bar">
+                        <select v-model="aiPromptType" class="filter-select">
+                            <option value="preference">偏好分析</option>
+                            <option value="recommend">内容推荐</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                        <select v-model="aiMediaType" class="filter-select">
+                            <option value="">全部类型</option>
+                            <option value="movie">电影</option>
+                            <option value="book">读书</option>
+                            <option value="music">音乐</option>
+                        </select>
+                        <input v-if="aiPromptType === 'custom'" v-model="aiCustomPrompt" class="search-input" placeholder="输入自定义提示词...">
+                        <button @click="runAIAnalysis" :disabled="aiLoading" class="btn btn-primary">
+                            {{ aiLoading ? '分析中...' : '开始分析' }}
+                        </button>
+                    </div>
+                    
+                    <div v-if="aiLoading" class="ai-loading-state">
+                        <div class="spinner"></div>
+                        <p>🧠 AI 正在深度分析您的数据，请稍候 (约 10-30 秒)...</p>
+                    </div>
+                    
+                    <div v-if="aiResult && !aiLoading" class="ai-result">
+                        <div class="ai-result-meta">
+                            <span>模型: {{ aiResult.model }}</span>
+                            <span>Token: {{ aiResult.tokens_used }}</span>
+                            <span>时间: {{ aiResult.created_at }}</span>
+                            <button @click="exportReport" class="btn btn-sm">导出 Markdown</button>
+                        </div>
+                        
+                        <!-- 结构化 JSON 渲染 -->
+                        <div v-if="aiParsedData" class="ai-structured-report">
+                            <div class="report-header">
+                                <h2 class="report-personality">{{ aiParsedData.personality }}</h2>
+                                <div class="report-keywords">
+                                    <span v-for="kw in aiParsedData.keywords" :key="kw" class="tag-chip ai-kw">{{ kw }}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="report-grid">
+                                <div class="report-card">
+                                    <h3>💡 核心偏好总结</h3>
+                                    <p>{{ aiParsedData.summary }}</p>
+                                </div>
+                                <div class="report-card radar-card">
+                                    <div id="aiRadarChart" style="width: 100%; height: 250px;"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="report-card full-width">
+                                <h3>🔍 深度解读</h3>
+                                <p>{{ aiParsedData.details }}</p>
+                            </div>
+                            
+                            <div v-if="aiParsedData.recommendations && aiParsedData.recommendations.length > 0" class="report-card full-width">
+                                <h3>🎯 为您推荐</h3>
+                                <ul class="recommendation-list">
+                                    <li v-for="rec in aiParsedData.recommendations" :key="rec.title">
+                                        <strong>《{{ rec.title }}》</strong>
+                                        <p>{{ rec.reason }}</p>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- 纯文本/Markdown 降级渲染 -->
+                        <div v-else class="ai-content" v-html="renderMarkdown(aiResult.content)"></div>
+                    </div>
+                    <div class="report-history">
+                        <h3>历史报告</h3>
+                        <div v-for="r in reports" :key="r.report_id" class="report-item" @click="loadReport(r.report_id)">
+                            <span class="report-model">{{ r.model }}</span>
+                            <span class="report-preview">{{ r.preview }}</span>
+                            <span class="report-date">{{ r.created_at }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings -->
+                <div v-show="route === '/settings'" class="settings-view">
+                    <div class="settings-section">
+                        <h3>AI 配置</h3>
+                        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">默认使用 DeepSeek (deepseek-v4-flash)，您只需要填写 API 密钥即可开始分析。如有需要，可修改下方的高级参数接入其他模型。</p>
+                        <div class="form-group">
+                            <label>API 密钥</label>
+                            <input v-model="config.ai_api_key" type="password" class="form-input" placeholder="输入您的 API Key (如 sk-...)">
+                        </div>
+                        <div class="form-group">
+                            <label>Base URL</label>
+                            <input v-model="config.ai_base_url" class="form-input" placeholder="https://api.deepseek.com">
+                        </div>
+                        <div class="form-group">
+                            <label>模型名称</label>
+                            <input v-model="config.ai_model" class="form-input" placeholder="deepseek-v4-flash">
+                        </div>
+                        <div class="form-group">
+                            <label>最大输出 Token</label>
+                            <input v-model.number="config.ai_max_tokens" type="number" class="form-input" placeholder="4096">
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>采集配置</h3>
+                        <div class="form-group">
+                            <label>最小延迟 (ms)</label>
+                            <input v-model.number="config.scrape_delay_min" type="number" class="form-input" placeholder="2000">
+                        </div>
+                        <div class="form-group">
+                            <label>最大延迟 (ms)</label>
+                            <input v-model.number="config.scrape_delay_max" type="number" class="form-input" placeholder="5000">
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>数据管理</h3>
+                        <div class="data-actions">
+                            <button @click="exportAllData('json')" class="btn">导出 JSON</button>
+                            <button @click="exportAllData('xlsx')" class="btn">导出 Excel</button>
+                            <button @click="exportAllData('csv')" class="btn">导出 CSV</button>
+                        </div>
+                    </div>
+                    <button @click="saveConfig" class="btn btn-primary">保存配置</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 删除确认弹窗 -->
+        <div v-if="showDeleteModal" class="modal-overlay" @click.self="cancelDelete">
+            <div class="modal-dialog">
+                <div class="modal-header">确认删除</div>
+                <div class="modal-body">
+                    <p v-if="deleteTarget">确定要删除「{{ deleteTarget.title }}」吗？此操作不可撤销。</p>
+                    <p v-else>确定要删除选中的 {{ selectedIds.size }} 条记录吗？此操作不可撤销。</p>
+                </div>
+                <div class="modal-footer">
+                    <button @click="cancelDelete" class="btn">取消</button>
+                    <button @click="confirmDelete" class="btn btn-danger">确认删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
